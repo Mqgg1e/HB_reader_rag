@@ -1,0 +1,2 @@
+This directory contains scripts that are no longer in use. They were extracted for kaggle test and other purposes, but are not part of the current workflow.
+Still they may contain useful code snippets or logic that could be referenced in the future.
