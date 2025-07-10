@@ -4,50 +4,6 @@ from typing import List, Dict, Any
 from modules.document import Document
 
 
-def load_documents_from_jsonl(file_path: str) -> List[Document]:
-    documents = []
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                data = json.loads(line.strip())
-                documents.append(Document(page_content=data['page_content'], metadata=data['metadata']))
-        print(f"Successfully loaded {len(documents)} documents from {file_path}")
-    except FileNotFoundError:
-        print(f"Error: File not found at {file_path}")
-    except Exception as e:
-        print(f"An error occurred while loading documents: {e}")
-    return documents
-
-
-def initialize_embeddings(model_name: str = "BAAI/bge-large-en-v1.5"):
-    from langchain_community.embeddings import HuggingFaceBgeEmbeddings
-    try:
-        embeddings = HuggingFaceBgeEmbeddings(model_name=model_name)
-        print(f"Using HuggingFaceBgeEmbeddings: {model_name}")
-    except Exception as e:
-        print(f"Error loading {model_name}: {e}. Trying fallback 'all-MiniLM-L6-v2'.")
-        from langchain_community.embeddings import SentenceTransformerEmbeddings
-        embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
-        print("Falling back to SentenceTransformerEmbeddings: all-MiniLM-L6-v2.")
-    return embeddings
-
-
-# def load_faiss_vectorstore(faiss_index_path: str, embeddings, top_k: int = 5):
-#     from langchain_community.vectorstores import FAISS
-#     try:
-#         vectorstore = FAISS.load_local(
-#             faiss_index_path,
-#             embeddings,
-#             index_name="bible_faiss_index",
-#             allow_dangerous_deserialization=True
-#         )
-#         retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
-#         print("FAISS vector database loaded successfully.")
-#         return retriever
-#     except Exception as e:
-#         print(f"Error loading FAISS index: {e}")
-#         return None
-
 def load_faiss_vectorstore(faiss_index_path: str, embeddings, index_name: str = "bible_faiss_index",top_k: int = 5):
     from langchain_community.vectorstores import FAISS
     try:
@@ -171,6 +127,8 @@ if __name__ == "__main__":
     if not os.path.exists(processed_data_file):
         print(f"Error: Processed data file not found at {processed_data_file}.")
         exit()
+
+    from vector_db import initialize_embeddings
 
     retriever = load_faiss_vectorstore(faiss_index_path, initialize_embeddings())
     if retriever is None:

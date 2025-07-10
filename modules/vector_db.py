@@ -3,22 +3,6 @@ import json
 from typing import List, Dict, Any
 from modules.document import Document
 
-
-def load_documents_from_jsonl(file_path: str) -> List[Document]:
-    documents = []
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                data = json.loads(line.strip())
-                documents.append(Document(page_content=data['page_content'], metadata=data['metadata']))
-        print(f"Successfully loaded {len(documents)} documents from {file_path}")
-    except FileNotFoundError:
-        print(f"Error: File not found at {file_path}")
-    except Exception as e:
-        print(f"An error occurred while loading documents: {e}")
-    return documents
-
-
 def initialize_embeddings(model_name: str = "BAAI/bge-large-en-v1.5"):
     from langchain_community.embeddings import HuggingFaceBgeEmbeddings
     try:

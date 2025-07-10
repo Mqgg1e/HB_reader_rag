@@ -28,6 +28,20 @@ def clean_bible_text_header(raw_text: str) -> str:
     cleaned_text = re.sub(r'^\s*\n', '', cleaned_text, flags=re.MULTILINE)
     return cleaned_text
 
+def load_documents_from_jsonl(file_path: str) -> List[Document]:
+    documents = []
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                data = json.loads(line.strip())
+                documents.append(Document(page_content=data['page_content'], metadata=data['metadata']))
+        print(f"Successfully loaded {len(documents)} documents from {file_path}")
+    except FileNotFoundError:
+        print(f"Error: File not found at {file_path}")
+    except Exception as e:
+        print(f"An error occurred while loading documents: {e}")
+    return documents
+
 def save_cleaned_text_to_file(cleaned_text: str, output_file_path: str) -> None:
     try:
         with open(output_file_path, 'w', encoding='utf-8') as f:
@@ -101,24 +115,3 @@ def save_documents_to_jsonl(documents: List[Document], output_file_path: str):
     except IOError as e:
         print(f"Error: Could not save documents to '{output_file_path}': {e}")
         raise
-
-def load_documents_from_jsonl(input_file_path: str) -> List[Document]:
-    documents = []
-    if not os.path.exists(input_file_path):
-        print(f"Error: Input file '{input_file_path}' not found.")
-        raise FileNotFoundError(f"File not found: {input_file_path}")
-    try:
-        with open(input_file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                data = json.loads(line)
-                doc = Document(page_content=data["page_content"], metadata=data["metadata"])
-                documents.append(doc)
-        print(f"Successfully loaded {len(documents)} documents from '{input_file_path}'")
-        return documents
-    except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON format in '{input_file_path}': {e}")
-        raise
-    except IOError as e:
-        print(f"Error: Could not load documents from '{input_file_path}': {e}")
-        raise
-
