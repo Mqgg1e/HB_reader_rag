@@ -1,7 +1,6 @@
 import os
-import json
-from typing import List, Dict, Any
-from modules.document import Document
+from typing import List
+from src.modules.document import Document
 
 def initialize_embeddings(model_name: str = "BAAI/bge-large-en-v1.5"):
     from langchain_community.embeddings import HuggingFaceBgeEmbeddings

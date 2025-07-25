@@ -1,8 +1,9 @@
 import os
 import re
 import json
-from typing import List, Dict, Any
-from modules.document import Document
+from typing import List
+from src.modules.document import Document
+
 
 def read_text_file(file_path: str) -> str:
     if not os.path.exists(file_path):
@@ -17,6 +18,7 @@ def read_text_file(file_path: str) -> str:
         print(f"Error: An I/O error occurred while reading file '{file_path}': {e}")
         raise
 
+
 def clean_bible_text_header(raw_text: str) -> str:
     delimiter = "--------------------------------------------------------------------------------"
     parts = raw_text.split(delimiter)
@@ -27,6 +29,7 @@ def clean_bible_text_header(raw_text: str) -> str:
         return raw_text
     cleaned_text = re.sub(r'^\s*\n', '', cleaned_text, flags=re.MULTILINE)
     return cleaned_text
+
 
 def load_documents_from_jsonl(file_path: str) -> List[Document]:
     documents = []
@@ -42,6 +45,7 @@ def load_documents_from_jsonl(file_path: str) -> List[Document]:
         print(f"An error occurred while loading documents: {e}")
     return documents
 
+
 def save_cleaned_text_to_file(cleaned_text: str, output_file_path: str) -> None:
     try:
         with open(output_file_path, 'w', encoding='utf-8') as f:
@@ -50,6 +54,7 @@ def save_cleaned_text_to_file(cleaned_text: str, output_file_path: str) -> None:
     except IOError as e:
         print(f"Error: An I/O error occurred while writing to file '{output_file_path}': {e}")
         raise
+
 
 def parse_bible_verses(cleaned_text: str) -> List[Document]:
     verses = []
@@ -100,6 +105,7 @@ def parse_bible_verses(cleaned_text: str) -> List[Document]:
             print(f"Info: Skipping unrecognized line (not book title or verse): {line[:100]}...")
     print(f"Finished parsing. Total verses extracted: {len(verses)}")
     return verses
+
 
 def save_documents_to_jsonl(documents: List[Document], output_file_path: str):
     output_dir = os.path.dirname(output_file_path)
