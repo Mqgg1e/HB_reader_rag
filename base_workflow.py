@@ -24,7 +24,13 @@ from src.modules.rag_chain import (
 class BaseWorkflow:
     def __init__(self, config_path=None):
         if config_path is None:
-            config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'Config.yaml')
+            config_path = os.path.join(os.path.dirname(__file__), 'config', 'Config.yaml')
+            config_path = os.path.abspath(config_path)
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(
+                f"Config file not found: {config_path}. "
+                "Please ensure 'config/Config.yaml' exists in the repository root."
+            )
         with open(config_path, 'r', encoding='utf-8') as file:
             self.config = yaml.safe_load(file)
         # Expose commonly used functions as instance attributes

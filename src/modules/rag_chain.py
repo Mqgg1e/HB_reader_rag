@@ -1,136 +1,90 @@
 import os
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.documents import Document
-from typing import List, Dict, Any
+from typing import Callable, Dict, List
+
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+
+from src.modules.document import Document
 
 
-def load_faiss_vectorstore(faiss_index_path: str, embeddings, index_name: str = "bible_faiss_index", top_k: int = 5):
-    from langchain_community.vectorstores import FAISS
-    try:
-        vectorstore = FAISS.load_local(
-            faiss_index_path,
-            embeddings,
-            index_name=index_name,
-            allow_dangerous_deserialization=True
-        )
-        retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
-        print("FAISS vector database loaded successfully.")
-        return retriever
-    except Exception as e:
-        print(f"Error loading FAISS index: {e}")
-        return None
-
-
-# def initialize_llm():
-#     from langchain_google_genai import ChatGoogleGenerativeAI
-#     try:
-#         llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.7)
-#         print("Using Google Gemini Pro.")
-#     except Exception as e:
-#         print(f"Error initializing Google Gemini Pro: {e}.")
-#         llm = None
-#     return llm
-
-
-def initialize_llm(model_name_or_path: str):
-    import torch
-    from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-    from langchain_huggingface import HuggingFacePipeline
-    try:
-        # Load tokenizer and model
-        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-
-        # Load model in 4-bit (or 8-bit) quantization for lower memory usage if GPU is available
-        # If no GPU, or you have sufficient RAM, remove load_in_4bit=True
-        model = AutoModelForCausalLM.from_pretrained(
+class SimpleLLM:
+    def __init__(self, model_name_or_path: str):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        self.model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
-            device_map="auto",  # Automatically maps model to available devices (GPU/CPU)
-            torch_dtype=torch.bfloat16,  # Use bfloat16 for better performance and memory on some GPUs
-            load_in_4bit=False  # Crucial for fitting larger models on limited GPU memory
-            # If load_in_4bit causes issues or you have ample GPU RAM, try load_in_8bit=True or remove it for full precision
+            device_map="auto" if torch.cuda.is_available() else None,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            # load_in_4bit=False, removed for transformers >= 5.0.0
         )
-
-        # Create a Hugging Face pipeline for text generation
-        pipe = pipeline(
+        self.pipe = pipeline(
             "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            max_new_tokens=512,  # Max tokens the LLM will generate for an answer
+            model=self.model,
+            tokenizer=self.tokenizer,
+            max_new_tokens=512,
             do_sample=True,
             temperature=0.7,
             top_p=0.95,
-            repetition_penalty=1.1  # Avoid repetitive answers
+            repetition_penalty=1.1,
+            return_full_text=False,
+            # device=0 if torch.cuda.is_available() else -1,
         )
 
-        llm = HuggingFacePipeline(pipeline=pipe)
-        print(f"Using local HuggingFace model: {model_name_or_path.split('/')[-3]}/{model_name_or_path.split('/')[-2]}")
+    def generate(self, prompt: str) -> str:
+        result = self.pipe(prompt)
+        if isinstance(result, list) and len(result) > 0:
+            return result[0].get("generated_text", "").strip()
+        return ""
 
+
+def load_faiss_vectorstore(faiss_index_path: str, embeddings, top_k: int = 5, index_name: str = "bible_faiss_index"):
+    from src.modules.vector_db import load_faiss_vectorstore as load_store
+    return load_store(faiss_index_path, embeddings, top_k=top_k, index_name=index_name)
+
+
+def initialize_llm(model_name_or_path: str):
+    try:
+        llm = SimpleLLM(model_name_or_path)
+        print(f"Using local HuggingFace model: {model_name_or_path}")
     except Exception as e:
-        print(f"Error initializing local HuggingFace model: {e}")
-        print(
-            "Please ensure the model path is correct, and necessary libraries (transformers, accelerate, bitsandbytes) are installed.")
-        print("Also check if you have added the model as 'Input' in Kaggle Notebook.")
-        llm = None  # Set to None if initialization fails
+        print(f"Error initializing local HuggingFace model '{model_name_or_path}': {e}")
+        print("Attempting fallback to smaller model 'distilgpt2'...")
+        try:
+            llm = SimpleLLM('distilgpt2')
+            print("Using fallback model: distilgpt2")
+        except Exception as e2:
+            print(f"Fallback model initialization also failed: {e2}")
+            llm = None
     return llm
 
 
-def get_prompt_template():
-    from langchain_core.prompts import ChatPromptTemplate
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", "You are a helpful assistant that answers questions about the Bible. "
-                       "Use the provided context to answer the question. "
-                       "If the answer is not in the context, state that you don't know. "
-                       "Always cite the Bible verse (e.g., [John 3:16]) if you use information from it. "
-                       "Context: {context}"),
-            ("user", "{input}"),
-        ]
+def get_prompt_template() -> str:
+    return (
+        "You are a helpful assistant that answers questions about the Bible. "
+        "Use the provided context to answer the question. "
+        "If the answer is not in the context, state that you don't know. "
+        "Always cite the Bible verse (e.g., [John 3:16]) if you use information from it.\n\n"
+        "Context:\n{context}\n\nQuestion: {input}\nAnswer:"
     )
 
 
-def build_rag_chain_with_summary(retriever, llm, prompt_template):
-    def convert_summary_to_original_content(docs: List[Document]) -> List[Document]:
-        converted_docs = []
-        for doc in docs:
-            original_content = doc.metadata.get("original_chapter_content")
-            location = doc.metadata.get("location", "Unknown")
-            if original_content:
-                new_doc = Document(
-                    page_content=original_content,
-                    metadata={
-                        "original_summary": doc.page_content,  # optional to keep summary in metadata
-                        **doc.metadata
-                    }
-                )
-                converted_docs.append(new_doc)
-            else:
-                # fallback and exception
-                print(f"Warning: original_chapter_content not found for {location}. Using summary as context.")
-                converted_docs.append(doc)
-        return converted_docs
+def build_rag_chain(retriever, llm, prompt_template: str) -> Callable[[str], Dict[str, object]]:
+    def retrieval_chain(query: str) -> Dict[str, object]:
+        docs = retriever.get_relevant_documents(query)
+        context = "\n\n".join(
+            f"{doc.metadata.get('location', 'Unknown')}: {doc.page_content}"
+            for doc in docs
+        )
+        prompt = prompt_template.format(context=context, input=query)
+        answer = llm.generate(prompt) if llm else "LLM is not available."
+        return {
+            "answer": answer,
+            "source_documents": docs,
+        }
 
-    document_chain = create_stuff_documents_chain(llm, prompt_template)
-
-    from langchain_core.runnables import RunnablePassthrough
-
-    rag_chain = (
-            RunnablePassthrough.assign(context=retriever | convert_summary_to_original_content)
-            | document_chain
-    )
-
-    print("RAG chain built: Retriever fetches summaries, then original content is passed to LLM.")
-    return rag_chain
+    return retrieval_chain
 
 
-def run_rag_query(retrieval_chain):
-    """
-    Runs an interactive RAG query loop, adapting source display based on context type.
-
-    Args:
-        retrieval_chain: The RAG chain built by build_rag_chain.
-                         This chain should return documents in its 'context' key
-                         that have appropriate metadata (e.g., 'context_source_type').
-    """
+def run_rag_query(retrieval_chain: Callable[[str], Dict[str, object]]):
     while True:
         user_query = input("\nEnter your Bible question (or 'quit' to exit): ").strip()
         if user_query.lower() == 'quit':
@@ -138,54 +92,22 @@ def run_rag_query(retrieval_chain):
             break
         print(f"Processing query: '{user_query}'...")
         try:
-            # Invoke the RAG chain with the user's input
-            response = retrieval_chain.invoke({"input": user_query})
-
+            response = retrieval_chain(user_query)
             print("\n--- Answer ---")
-            print(response["answer"])
+            print(response.get("answer", ""))
 
-            print("\n--- Sources Used ---")
-            if "context" in response and response["context"]:
-                for i, doc in enumerate(response["context"]):
+            source_docs = response.get("source_documents", [])
+            if source_docs:
+                print("\n--- Sources ---")
+                for i, doc in enumerate(source_docs):
                     location = doc.metadata.get("location", "N/A")
-                    context_type = doc.metadata.get("context_source_type", "unknown")
-
                     print(f"  Source {i + 1}: {location}")
-
-                    # Adapt source display based on context_source_type
-                    if context_type == "original_chapter_content":
-                        # This means the LLM received the full original chapter
-                        original_summary_preview = doc.metadata.get("retrieved_summary_text",
-                                                                    "No summary preview").strip()[:100]
-                        original_content_preview = doc.page_content.strip()[:100]
-                        print(f"    - **Retrieved Summary (used for search preview):** {original_summary_preview}...")
-                        print(
-                            f"    - **Context Provided to LLM (Original Chapter Content preview):** {original_content_preview}...")
-                    elif context_type == "summary_fallback":
-                        # This means original content was missing, and the summary itself was used
-                        summary_content_preview = doc.page_content.strip()[:100]
-                        print(
-                            f"    - **Context Provided to LLM (Summary Fallback preview):** {summary_content_preview}...")
-                    else:
-                        # For cases where no specific context_source_type is set (e.g., old Document structure)
-                        # or if you decided to bypass the conversion for some reason.
-                        # We'll just print the page_content as the context that was used.
-                        context_preview = doc.page_content.strip()[:100]
-                        print(
-                            f"    - **Context Provided to LLM (General Document Content preview):** {context_preview}...")
+                    print(f"    {doc.page_content.strip()[:200]}...\n")
             else:
-                print("No specific sources retrieved or provided by the LLM.")
+                print("No retrieved source documents available.")
             print("--------------------")
         except Exception as e:
             print(f"An error occurred during query processing: {e}")
-
-
-def build_rag_chain(retriever, llm, prompt_template):
-    from langchain.chains.retrieval import create_retrieval_chain
-    from langchain.chains.combine_documents import create_stuff_documents_chain
-    document_chain = create_stuff_documents_chain(llm, prompt_template)
-    retrieval_chain = create_retrieval_chain(retriever, document_chain)
-    return retrieval_chain
 
 
 # if __name__ == "__main__":

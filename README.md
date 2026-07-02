@@ -76,4 +76,5 @@ The script performs all main steps in sequence:
 - The `src/modules` package contains the implementation details used by `main.py` and `base_workflow.py`.
 
 
-For direct experiment, you may visit this notebook: https://www.kaggle.com/code/maedaky/hbreader
+For direct experiment, you may visit this notebook: https://www.kaggle.com/code/maedaky/hbreader (Outdated)
+For up to date experiment, visit this one: https://www.kaggle.com/code/maedaky/hbreader-v2-260626 
